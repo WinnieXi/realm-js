@@ -92,8 +92,46 @@ inline bool node::Value::is_undefined(v8::Isolate* isolate, const v8::Local<v8::
 }
 
 template<>
+inline bool node::Value::is_binary(v8::Isolate* isolate, const v8::Local<v8::Value> &value) {
+    return Value::is_array_buffer(isolate, value) || Value::is_array_buffer_view(isolate, value)
+        || ::node::Buffer::HasInstance(value);
+}
+
+template<>
 inline bool node::Value::is_valid(const v8::Local<v8::Value> &value) {
     return !value.IsEmpty();
+}
+
+template<>
+inline bool node::Value::is_valid_for_property(v8::Isolate* isolate, const v8::Local<v8::Value> &value, const Property& prop)
+{
+    if (prop.is_nullable && (is_null(isolate, value) || is_undefined(isolate, value))) {
+        return true;
+    }
+
+    switch (prop.type) {
+        case PropertyType::Int:
+        case PropertyType::Float:
+        case PropertyType::Double:
+            return is_number(isolate, value);
+        case PropertyType::Bool:
+            return is_boolean(isolate, value);
+        case PropertyType::String:
+            return is_string(isolate, value);
+        case PropertyType::Data:
+            return is_binary(isolate, value);
+        case PropertyType::Date:
+            return is_date(isolate, value);
+        case PropertyType::Object:
+            return true;
+        case PropertyType::Array:
+            // FIXME: Do we need to validate the types of the contained objects?
+            return is_array(isolate, value);
+
+        case PropertyType::Any:
+        case PropertyType::LinkingObjects:
+            return false;
+    }
 }
 
 template<>
@@ -138,6 +176,39 @@ inline double node::Value::to_number(v8::Isolate* isolate, const v8::Local<v8::V
 template<>
 inline node::String node::Value::to_string(v8::Isolate* isolate, const v8::Local<v8::Value> &value) {
     return value->ToString();
+}
+
+template<>
+inline OwnedBinaryData node::Value::to_binary(v8::Isolate* isolate, v8::Local<v8::Value> value) {
+    // Make a non-null OwnedBinaryData, even when `data` is nullptr.
+    auto make_owned_binary_data = [](const char* data, size_t length) {
+        REALM_ASSERT(data || length == 0);
+        char placeholder;
+        return OwnedBinaryData(data ? data : &placeholder, length);
+    };
+
+    if (Value::is_array_buffer(isolate, value)) {
+        // TODO: This probably needs some abstraction for older V8.
+#if REALM_V8_ARRAY_BUFFER_API
+        v8::Local<v8::ArrayBuffer> array_buffer = value.As<v8::ArrayBuffer>();
+        v8::ArrayBuffer::Contents contents = array_buffer->GetContents();
+
+        return make_owned_binary_data(static_cast<char*>(contents.Data()), contents.ByteLength());
+#else
+        // TODO: Implement this for older V8
+#endif
+    }
+    else if (Value::is_array_buffer_view(isolate, value)) {
+        Nan::TypedArrayContents<char> contents(value);
+
+        return make_owned_binary_data(*contents, contents.length());
+    }
+    else if (::node::Buffer::HasInstance(value)) {
+        return make_owned_binary_data(::node::Buffer::Data(value), ::node::Buffer::Length(value));
+    }
+    else {
+        throw std::runtime_error("Can only convert Buffer, ArrayBuffer, and TypedArray objects to binary");
+    }
 }
 
 template<>

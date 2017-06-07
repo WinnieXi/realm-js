@@ -27,35 +27,6 @@ namespace realm {
 namespace js {
 
 template<>
-template<>
-inline BinaryData NativeAccessor<node::Types>::unbox(ValueType value, bool, bool) {
-    if (Value::is_array_buffer(m_ctx, value)) {
-        // TODO: This probably needs some abstraction for older V8.
-#if REALM_V8_ARRAY_BUFFER_API
-        v8::Local<v8::ArrayBuffer> array_buffer = value.As<v8::ArrayBuffer>();
-        v8::ArrayBuffer::Contents contents = array_buffer->GetContents();
-
-        m_string_buffer = std::string(static_cast<char*>(contents.Data()), contents.ByteLength());
-#else
-        // TODO: Implement this for older V8
-#endif
-    }
-    else if (Value::is_array_buffer_view(m_ctx, value)) {
-        Nan::TypedArrayContents<char> contents(value);
-
-        m_string_buffer = std::string(*contents, contents.length());
-    }
-    else if (::node::Buffer::HasInstance(value)) {
-        m_string_buffer = std::string(::node::Buffer::Data(value), ::node::Buffer::Length(value));
-    }
-    else {
-        throw std::runtime_error("Can only convert Buffer, ArrayBuffer, and TypedArray objects to binary");
-    }
-
-    return BinaryData(m_string_buffer.data(), m_string_buffer.size());
-}
-
-template<>
 inline v8::Local<v8::Value> NativeAccessor<node::Types>::box(BinaryData data) {
 #if REALM_V8_ARRAY_BUFFER_API
     size_t byte_count = data.size();
